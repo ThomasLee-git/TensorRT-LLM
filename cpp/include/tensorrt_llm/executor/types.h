@@ -367,7 +367,8 @@ public:
 
     static auto constexpr TopKTopP()
     {
-        return DecodingMode{kTopKTopP | kUsePenalties | kUseBanTokens | kStandardStopCriteria};
+        // ThomasLee
+        return DecodingMode{kTopKTopP | kUsePenalties | kUseBanTokens | kStandardStopCriteria | kUseExplicitEosStop};
     }
 
     static auto constexpr BeamSearch()

@@ -19,6 +19,7 @@
 #include "tensorrt_llm/common/cudaUtils.h"
 #include "tensorrt_llm/common/memoryUtils.h"
 #include "tensorrt_llm/kernels/decodingCommon.h"
+#include "tensorrt_llm/layers/layerUtils.h"
 #include "tensorrt_llm/layers/topKSamplingLayer.h"
 #include "tensorrt_llm/layers/topPSamplingLayer.h"
 
@@ -47,8 +48,10 @@ SamplingLayer<T>::SamplingLayer(executor::DecodingMode const& mode, DecoderDomai
 
     if (mDecodingMode.isTopP())
     {
-        mSamplingLayers.emplace_back(
-            std::make_unique<TopPSamplingLayer<T>>(decoderDomain, mStream, mAllocator, /* deterministic */ true));
+        // ThomasLee
+        auto const deterministic = false;
+        mSamplingLayers.emplace_back(std::make_unique<TopPSamplingLayer<T>>(
+            decoderDomain, mStream, mAllocator, /* deterministic */ deterministic));
     }
 
     allocateBuffer(decoderDomain.getBatchSize());
@@ -202,6 +205,20 @@ void SamplingLayer<T>::forwardAsync(
     for (auto&& layer : mSamplingLayers)
     {
         layer->forwardAsync(outputs, baseInputs);
+    }
+
+    {
+        // ThomasLee: set output
+        TLLM_LOG_TRACE("%s_invokeCfgAssignment start", __PRETTY_FUNCTION__);
+        auto output_ids_ptr = outputs->outputIdsPtr.template getPtr<TokenIdType*>();
+        auto sequence_length
+            = (outputs->sequenceLength) ? outputs->sequenceLength->template getPtr<SizeType32>() : nullptr;
+        // get local variables
+        auto const local_decoder_domain = getLocalDecoderDomain(inputs, mDecoderDomain);
+        invokeCfgAssignment(output_ids_ptr, sequence_length, local_decoder_domain.getBatchSize(),
+            local_decoder_domain.getBeamWidth(), local_decoder_domain.getMaxDecodingTokens(),
+            outputs->outputIds.shape[outputs->outputIds.shape.size() - 1], mStream);
+        TLLM_LOG_TRACE("%s_invokeCfgAssignment stop", __PRETTY_FUNCTION__);
     }
 
     TLLM_LOG_TRACE("%s stop", __PRETTY_FUNCTION__);

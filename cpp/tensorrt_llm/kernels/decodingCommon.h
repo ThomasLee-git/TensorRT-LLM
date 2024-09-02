@@ -151,7 +151,7 @@ static_assert(FinishedState::finishedMaxLength().isFinishedMaxLength());
 //! \param randomSeed seed to initialize states
 //! \param stream stream
 void invokeCurandInitialize(
-    curandState_t* state, int const* batchSlots, const size_t batchSize, uint64_t randomSeed, cudaStream_t stream);
+    curandState_t* state, int const* batchSlots, size_t const batchSize, uint64_t randomSeed, cudaStream_t stream);
 
 //! \brief Initialize batchSize curand states with given seed per request.
 //!
@@ -160,7 +160,7 @@ void invokeCurandInitialize(
 //! \param batchSize number of states to initialize
 //! \param randomSeeds input buffer [maxBatchSize] with seeds
 //! \param stream stream
-void invokeCurandBatchInitialize(curandState_t* states, int const* batchSlots, const size_t batchSize,
+void invokeCurandBatchInitialize(curandState_t* states, int const* batchSlots, size_t const batchSize,
     uint64_t const* randomSeeds, cudaStream_t stream);
 
 //! \brief Applies mask, adds bias to logits and computes softmax values.
@@ -201,5 +201,11 @@ void invokeAddBiasSoftMax(T* logits, T** logitsPtrs, T* probs, T const* bias, in
 //! \param stream stream
 template <typename T>
 void invokeScatterDecodingParams(T const* src, T* dst, int const* batchSlots, int batchSize, cudaStream_t stream);
+
+// ThomasLee
+void invokeCfgAssignment(std::int32_t** output_ids_ptr, std::int32_t const* sequence_length,
+    std::size_t const batch_size, std::size_t const beam_width, std::size_t const max_tokens_per_step,
+    std::size_t const max_len, cudaStream_t stream);
+
 } // namespace kernels
 } // namespace tensorrt_llm

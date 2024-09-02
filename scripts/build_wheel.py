@@ -83,8 +83,8 @@ def main(*,
     if not (project_dir / "3rdparty/cutlass/.git").exists():
         build_run('git submodule update --init --recursive')
     on_windows = platform.system() == "Windows"
-    requirements_filename = "requirements-dev-windows.txt" if on_windows else "requirements-dev.txt"
-    build_run(f"\"{sys.executable}\" -m pip install -r {requirements_filename}")
+    # requirements_filename = "requirements-dev-windows.txt" if on_windows else "requirements-dev.txt"
+    # build_run(f"\"{sys.executable}\" -m pip install -r {requirements_filename}")
     # Ensure TRT is installed on windows to prevent surprises.
     reqs = check_output([sys.executable, "-m", "pip", "freeze"])
     installed_packages = [r.decode().split("==")[0] for r in reqs.split()]
@@ -249,8 +249,8 @@ def main(*,
 
         copy(get_pybind_lib(), pkg_dir)
 
-        with working_directory(project_dir):
-            build_run(f"\"{sys.executable}\" -m pip install pybind11-stubgen")
+        # with working_directory(project_dir):
+        #     build_run(f"\"{sys.executable}\" -m pip install pybind11-stubgen")
         with working_directory(pkg_dir):
             if on_windows:
                 stubgen = "stubgen.py"

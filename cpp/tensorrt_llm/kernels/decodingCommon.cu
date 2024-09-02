@@ -18,7 +18,9 @@
 #include "tensorrt_llm/common/reduceKernelUtils.cuh"
 #include "tensorrt_llm/kernels/decodingCommon.h"
 #include "tensorrt_llm/runtime/common.h"
+
 #include <stdio.h>
+#include <tuple>
 
 using namespace tensorrt_llm::common;
 using namespace tensorrt_llm::runtime;
@@ -28,7 +30,7 @@ namespace tensorrt_llm
 namespace kernels
 {
 
-__global__ void curandInitialize(curandState_t* state, int const* batchSlots, int const size, const uint64_t randomSeed)
+__global__ void curandInitialize(curandState_t* state, int const* batchSlots, int const size, uint64_t const randomSeed)
 {
     int const idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size)
@@ -39,7 +41,7 @@ __global__ void curandInitialize(curandState_t* state, int const* batchSlots, in
 }
 
 void invokeCurandInitialize(
-    curandState_t* state, int const* batchSlots, const size_t batchSize, const uint64_t randomSeed, cudaStream_t stream)
+    curandState_t* state, int const* batchSlots, size_t const batchSize, uint64_t const randomSeed, cudaStream_t stream)
 {
     dim3 block(256);
     dim3 grid((int) (ceil(batchSize * 1.0 / 256)));
@@ -57,7 +59,7 @@ __global__ void curandBatchInitialize(
     }
 }
 
-void invokeCurandBatchInitialize(curandState_t* states, SizeType32 const* batchSlots, const size_t batchSize,
+void invokeCurandBatchInitialize(curandState_t* states, SizeType32 const* batchSlots, size_t const batchSize,
     uint64_t const* randomSeeds, cudaStream_t stream)
 {
     dim3 block(256);
@@ -200,5 +202,95 @@ template void invokeScatterDecodingParams(
     uint32_t const* src, uint32_t* dst, int const* batchSlots, int batchSize, cudaStream_t stream);
 template void invokeScatterDecodingParams(
     int32_t const* src, int32_t* dst, int const* batchSlots, int batchSize, cudaStream_t stream);
+
+// ThomasLee
+__global__ void cfgAssignmentKernel(std::int32_t** output_ids_ptr, std::int32_t const* sequence_length,
+    std::size_t const half_batch_size, std::size_t const beam_width, std::size_t const max_tokens_per_step,
+    std::size_t const max_len)
+{
+    // ThomasLee: second impl
+    auto const num_sequences = half_batch_size * beam_width;
+    auto const global_thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (global_thread_idx >= num_sequences)
+    {
+        return;
+    }
+    // get idx
+    auto const curr_batch_idx = global_thread_idx / beam_width;
+    auto const beam_idx = global_thread_idx % beam_width;
+    auto const next_batch_idx = curr_batch_idx + half_batch_size;
+
+    // calc offset
+    auto const curr_step_offset_in_sequence = curr_batch_idx * beam_width + beam_idx;
+    auto const next_step_offset_in_sequence = next_batch_idx * beam_width + beam_idx;
+    // NOTE: minus one to get correct offset
+    auto const curr_step_start = max(sequence_length[curr_step_offset_in_sequence] - max_tokens_per_step, 0ul);
+    auto const curr_step_end = sequence_length[curr_step_offset_in_sequence];
+    auto const next_step_start = max(sequence_length[next_step_offset_in_sequence] - max_tokens_per_step, 0ul);
+    for (auto [curr_idx, next_idx] = std::tuple{curr_step_start, next_step_start}; curr_idx < curr_step_end;
+         ++curr_idx, ++next_idx)
+    {
+        auto const curr_token_offset_in_ids = beam_idx * beam_width + curr_idx;
+        auto const next_token_offset_in_ids = beam_idx * beam_width + next_idx;
+        // assign
+        output_ids_ptr[next_batch_idx][next_token_offset_in_ids]
+            = output_ids_ptr[curr_batch_idx][curr_token_offset_in_ids];
+    }
+
+    // // for test only
+    // output_ids_ptr[curr_batch_idx][0] = curr_step_offset_in_sequence;
+    // output_ids_ptr[curr_batch_idx][1] = curr_step;
+    // output_ids_ptr[curr_batch_idx][2] = curr_token_offset_in_ids;
+    // output_ids_ptr[curr_batch_idx][3] = output_ids_ptr[curr_batch_idx][curr_token_offset_in_ids];
+    // output_ids_ptr[next_batch_idx][0] = next_step_offset_in_sequence;
+    // output_ids_ptr[next_batch_idx][1] = next_step;
+    // output_ids_ptr[next_batch_idx][2] = next_token_offset_in_ids;
+    // output_ids_ptr[next_batch_idx][3] = output_ids_ptr[next_batch_idx][next_token_offset_in_ids];
+
+    // // ThomasLee: first impl
+    // for (auto batch_idx = 0; batch_idx < batch_size; batch_idx += 2)
+    // {
+    //     auto const next_batch_idx = batch_idx + 1;
+    //     for (auto beam_idx = 0; beam_idx < beam_width; beam_idx += 1)
+    //     {
+    //         auto const seq_offset = batch_idx * beam_width + beam_idx;
+    //         auto const next_seq_offset = next_batch_idx * beam_width + beam_idx;
+    //         // NOTE: minus 1 because sequence_length has been modified during sampling
+    //         auto const seq = sequence_length[seq_offset] - 1;
+    //         auto const next_seq = sequence_length[next_seq_offset] - 1;
+    //         auto const token_offset = beam_idx * beam_width + seq;
+    //         auto const next_token_offset = beam_idx * beam_width + next_seq;
+
+    //         // for test only
+    //         output_ids_ptr[batch_idx][0] = seq_offset;
+    //         output_ids_ptr[batch_idx][1] = seq;
+    //         output_ids_ptr[batch_idx][2] = token_offset;
+    //         output_ids_ptr[batch_idx][3] = output_ids_ptr[batch_idx][token_offset];
+    //         output_ids_ptr[next_batch_idx][0] = next_seq_offset;
+    //         output_ids_ptr[next_batch_idx][1] = next_seq;
+    //         output_ids_ptr[next_batch_idx][2] = next_token_offset;
+    //         output_ids_ptr[next_batch_idx][3] = output_ids_ptr[next_batch_idx][next_token_offset];
+
+    //         // // assign
+    //         // output_ids_ptr[next_batch_idx][next_token_offset] = output_ids_ptr[batch_idx][token_offset];
+    //     }
+    // }
+}
+
+void invokeCfgAssignment(std::int32_t** output_ids_ptr, std::int32_t const* sequence_length,
+    std::size_t const batch_size, std::size_t const beam_width, std::size_t const max_tokens_per_step,
+    std::size_t const max_len, cudaStream_t stream)
+{
+    // TODO: faster impl
+    auto constexpr block_size = 256;
+    assert(batch_size % 2 == 0);
+    auto const half_batch_size = batch_size / 2;
+    auto const num_sequences = half_batch_size * beam_width;
+    dim3 block(block_size);
+    dim3 grid(divUp(num_sequences, block_size));
+    cfgAssignmentKernel<<<grid, block, 0, stream>>>(
+        output_ids_ptr, sequence_length, half_batch_size, beam_width, max_tokens_per_step, max_len);
+    sync_check_cuda_error();
+}
 } // namespace kernels
 } // namespace tensorrt_llm

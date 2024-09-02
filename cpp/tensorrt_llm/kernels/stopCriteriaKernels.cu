@@ -219,7 +219,9 @@ __global__ void explicitEOSCriterion(TokenIdType const** outputIds, TokenIdType 
     for (SizeType32 pos = posStart; pos < posEnd; ++pos)
     {
         auto const token = outputIds[batchSlot][pos];
-        if (token == endId)
+        // ThomasLee
+        // if (token == endId)
+        if (token >= endId)
         {
             finished[batchSlot].setFinishedEOS();
             sequenceLengths[batchSlot] = max(0, pos);
