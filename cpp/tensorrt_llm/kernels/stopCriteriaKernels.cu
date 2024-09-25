@@ -223,6 +223,7 @@ __global__ void explicitEOSCriterion(TokenIdType const** outputIds, TokenIdType 
         // if (token == endId)
         if (token >= endId)
         {
+            printf("ThomasLee_eos - batchIdx: %d, token: %d, endId: %d\n", batchIdx, token, endId);
             finished[batchSlot].setFinishedEOS();
             sequenceLengths[batchSlot] = max(0, pos);
             if (numNewTokens)

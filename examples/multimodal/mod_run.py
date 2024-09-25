@@ -986,8 +986,9 @@ class MultimodalModelRunner:
         self,
         text_list: typing.List[str],
         clap_list: typing.List[torch.Tensor],
-        max_new_tokens,
-        warmup,
+        max_new_tokens: int,
+        min_length: int,
+        warmup: bool,
         lora_uids: typing.Optional[list] = None,
     ):
         if not warmup:
@@ -1018,6 +1019,7 @@ class MultimodalModelRunner:
             prompt_table=ptuning_args[0],
             lora_uids=lora_uids,
             max_new_tokens=max_new_tokens,
+            min_length=min_length,
             # ThomasLee
             # end_id=self.import_dataset.BOS_AUDIO,
             # pad_id=self.import_dataset.EOS_AUDIO,
@@ -1099,16 +1101,27 @@ class MultimodalModelRunner:
         text_list: typing.List[str],
         clap_list: typing.List[torch.Tensor],
         max_new_tokens: int,
+        min_length: int,
         lora_uids: typing.Optional[list] = None,
     ):
         import time
 
         self.generate(
-            text_list, clap_list, max_new_tokens, warmup=True, lora_uids=lora_uids
+            text_list,
+            clap_list,
+            max_new_tokens,
+            min_length,
+            warmup=True,
+            lora_uids=lora_uids,
         )
         s_time = time.perf_counter()
         output_token_list = self.generate(
-            text_list, clap_list, max_new_tokens, warmup=False, lora_uids=lora_uids
+            text_list,
+            clap_list,
+            max_new_tokens,
+            min_length,
+            warmup=False,
+            lora_uids=lora_uids,
         )
         e_time = time.perf_counter()
         max_len = max([x.size(-1) for x in output_token_list])
@@ -1156,14 +1169,15 @@ def infer():
         torch.from_numpy(x).to(model.device).unsqueeze(0).unsqueeze(0).fill_(1e-7)
         for x in clap_all
     ]
-    lora_uids = [0, 1, 4] * 2
+    # lora_uids = [0, 1, 4] * 2
+    lora_uids = [-1] * batch_size
     # NOTE:
     lora_uids = [str(uid) for uid in lora_uids]
     # lora_uids = ["0"] * batch_size
     # lora_uids = None
     # run model
     output_token_list = model.run(
-        text_list, clap_list, max_new_tokens=3400, lora_uids=lora_uids
+        text_list, clap_list, max_new_tokens=3400, min_length=1500, lora_uids=lora_uids
     )
     # save
     output_root = Path("tmp_trtllm_output_lora")

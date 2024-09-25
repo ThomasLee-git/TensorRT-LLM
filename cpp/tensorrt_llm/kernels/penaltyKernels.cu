@@ -149,7 +149,7 @@ __global__ void batchApplyPenalty(T const* const* inputLogits, T* outputLogits, 
     // Apply bias and penalties
     auto const inLogitsPtr = inputLogits[batchIdx] + (beamIdx * maxTokensPerStep + stepIdx) * vocabSizePadded;
     auto outLogitsPtr = outputLogits + batchBeamStepIdx * vocabSizePadded;
-    const T MASK_VAL = (std::is_same<T, half>::value) ? -HALF_FLT_MAX : -FLT_MAX;
+    T const MASK_VAL = (std::is_same<T, half>::value) ? -HALF_FLT_MAX : -FLT_MAX;
     for (auto index = static_cast<SizeType32>(threadIdx.x); index < vocabSizePadded;
          index += static_cast<SizeType32>(blockDim.x))
     {
@@ -201,7 +201,14 @@ __global__ void batchApplyPenalty(T const* const* inputLogits, T* outputLogits, 
         // Min length
         if ((threadIdx.x == 0) && (currentStep - inputLen < minLength))
         {
-            outLogitsPtr[endIds[batchSlot]] = MASK_VAL;
+            // ThomasLee
+            auto const endId = endIds[batchSlot];
+            printf("ThomasLee_minlength - batchSlot: %d, endId: %d, vocabSize: %d\n", batchSlot, endId, vocabSize);
+            for (auto idx = endId; idx < vocabSize; ++idx)
+            {
+                outLogitsPtr[idx] = MASK_VAL;
+            }
+            // outLogitsPtr[endIds[batchSlot]] = MASK_VAL;
         }
     }
 }
