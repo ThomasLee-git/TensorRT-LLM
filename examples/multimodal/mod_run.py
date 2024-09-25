@@ -988,6 +988,7 @@ class MultimodalModelRunner:
         clap_list: typing.List[torch.Tensor],
         max_new_tokens,
         warmup,
+        lora_uids: typing.Optional[list] = None,
     ):
         if not warmup:
             profiler.start("Generate")
@@ -1015,6 +1016,7 @@ class MultimodalModelRunner:
             input_ids,
             sampling_config=scfg,
             prompt_table=ptuning_args[0],
+            lora_uids=lora_uids,
             max_new_tokens=max_new_tokens,
             # ThomasLee
             # end_id=self.import_dataset.BOS_AUDIO,
@@ -1097,18 +1099,16 @@ class MultimodalModelRunner:
         text_list: typing.List[str],
         clap_list: typing.List[torch.Tensor],
         max_new_tokens: int,
+        lora_uids: typing.Optional[list] = None,
     ):
         import time
 
         self.generate(
-            text_list,
-            clap_list,
-            max_new_tokens,
-            warmup=True,
+            text_list, clap_list, max_new_tokens, warmup=True, lora_uids=lora_uids
         )
         s_time = time.perf_counter()
         output_token_list = self.generate(
-            text_list, clap_list, max_new_tokens, warmup=False
+            text_list, clap_list, max_new_tokens, warmup=False, lora_uids=lora_uids
         )
         e_time = time.perf_counter()
         max_len = max([x.size(-1) for x in output_token_list])
@@ -1134,7 +1134,8 @@ def infer():
             "/mnt/workspace/users/xingda.li/s1_vllm/v534-crazy/vllm"
         ),
         # llm_engine_dir=Path("/dev/shm/v534-crazy_engine/1gpu_bf16"),
-        llm_engine_dir=Path("/dev/shm/v534-crazy_engine/1gpu_bf16_bs8"),
+        # llm_engine_dir=Path("/dev/shm/v534-crazy_engine/1gpu_bf16_bs8"),
+        llm_engine_dir=Path("/dev/shm/v534-crazy_engine/1gpu_bf16_bs8_lora"),
         top_k=-1,
         top_p=1.0,
         temperature=0.75,
@@ -1152,12 +1153,20 @@ def infer():
     clap_all = np.load("sampled_clap.npy")[:batch_size]
     # clap_list = [torch.zeros((1, 1, 512), device=model.device) + 1e-7] * batch_size
     clap_list = [
-        torch.from_numpy(x).to(model.device).unsqueeze(0).unsqueeze(0) for x in clap_all
+        torch.from_numpy(x).to(model.device).unsqueeze(0).unsqueeze(0).fill_(1e-7)
+        for x in clap_all
     ]
+    lora_uids = [0, 1, 4] * 2
+    # NOTE:
+    lora_uids = [str(uid) for uid in lora_uids]
+    # lora_uids = ["0"] * batch_size
+    # lora_uids = None
     # run model
-    output_token_list = model.run(text_list, clap_list, max_new_tokens=3400)
+    output_token_list = model.run(
+        text_list, clap_list, max_new_tokens=3400, lora_uids=lora_uids
+    )
     # save
-    output_root = Path("tmp_trtllm_output")
+    output_root = Path("tmp_trtllm_output_lora")
     tmp_output = output_root.joinpath(
         f'{datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")}'
     )
